@@ -843,6 +843,7 @@
     lodash "^4.17.13"
     to-fast-properties "^2.0.0"
 
+<<<<<<< HEAD
 "@babel/types@^7.1.6", "@babel/types@^7.3.2", "@babel/types@^7.3.4", "@babel/types@^7.6.3":
   version "7.6.3"
   resolved "https://registry.npmjs.org/@babel/types/-/types-7.6.3.tgz#3f07d96f854f98e2fbd45c64b0cb942d11e8ba09"
@@ -856,6 +857,12 @@
   version "3.13.1"
   resolved "https://registry.npmjs.org/@ember-data/-build-infra/-/-build-infra-3.13.1.tgz#e31247b72a4c61b837286d0ef0829f4128466601"
   integrity sha512-bDvnQVPAaQf2UuRsU/6ha444hwdUsUeV5vNsc7U2i6ffzSYiF9y8yQhOoW0JgTUwz0mnASRscOO6QKEUJOTkKA==
+=======
+"@ember-decorators/component@^2.5.2":
+  version "2.5.2"
+  resolved "https://registry.npmjs.org/@ember-decorators/component/-/component-2.5.2.tgz#54ceb0edbf8cc089b25174897639c5704532274f"
+  integrity sha512-2h795jBe25mycsskdxASO5CgYmwWJ1Nme1ZF2tB4FHJI/fCz5OCntJEe/fQjmvGMLaKZm7ipjEVCYomO6s7YrQ==
+>>>>>>> Remove @ember-decorators/babel-transforms
   dependencies:
     "@babel/plugin-transform-block-scoping" "^7.5.5"
     "@ember/edition-utils" "^1.1.1"
