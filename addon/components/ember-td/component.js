@@ -166,7 +166,6 @@ export default BaseTableCell.extend({
       rowValue,
       rowMeta,
     });
-
     this.sendAction(action, values);
   },
 });
