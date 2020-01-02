@@ -1,15 +1,11 @@
 import Component from '@ember/component';
-import { computed } from '@ember-decorators/object';
+import { computed } from '@ember/object';
 import faker from 'faker';
+import { getRandomInt } from '../../../../../../utils/generators';
 
-function getRandomInt(max, min) {
-  return faker.random.number({ min, max });
-}
-
-export default class EmptyValues extends Component {
+export default Component.extend({
   // BEGIN-SNIPPET docs-example-sorting-empty-values.js
-  @computed
-  get columns() {
+  columns: computed(function() {
     return [
       { name: 'Product', valuePath: 'name' },
       { name: 'Material', valuePath: 'material' },
@@ -18,13 +14,12 @@ export default class EmptyValues extends Component {
       { name: 'Unsold', valuePath: 'unsold' },
       { name: 'Total Revenue', valuePath: 'totalRevenue' },
     ];
-  }
+  }),
 
-  sortEmptyLast = true;
+  sortEmptyLast: true,
   // END-SNIPPET
 
-  @computed
-  get rows() {
+  rows: computed(function() {
     let rows = [];
 
     for (let k = 0; k < 10; k++) {
@@ -34,7 +29,7 @@ export default class EmptyValues extends Component {
       let totalRevenue = price * sold;
 
       let product = {
-        name: faker.commerce.productName(k),
+        name: faker.commerce.productName(),
         material: faker.commerce.productMaterial(),
         price: `$${price}`,
         sold,
@@ -52,7 +47,7 @@ export default class EmptyValues extends Component {
       let totalRevenue = price * sold;
 
       let product = {
-        name: faker.commerce.productName(k),
+        name: faker.commerce.productName(),
         material: '',
         price: `$${price}`,
         sold,
@@ -64,5 +59,5 @@ export default class EmptyValues extends Component {
     }
 
     return rows;
-  }
-}
+  }),
+});

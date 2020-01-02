@@ -1,6 +1,7 @@
 import Component from '@ember/component';
 
-import { computed, observer } from '@ember/object';
+import { computed } from '@ember/object';
+import { observer } from '../../-private/utils/observer';
 import { bool, readOnly, or } from '@ember/object/computed';
 
 import { SUPPORTS_INVERSE_BLOCK } from 'ember-compatibility-helpers';
@@ -27,11 +28,13 @@ import { assert } from '@ember/debug';
   </EmberTable>
   ```
 
-  @yield {object} b - the API object yielded by the table body
-  @yield {Component} b.row - The table row component
+  @yield {object} body - the API object yielded by the table body
+  @yield {Component} body.row - The table row component
 
-  @yield {object} b.rowValue - The value for the currently yielded row
-  @yield {object} b.rowMeta - The meta for the currently yielded row
+  @yield {object} body.rowValue - The value for the currently yielded row
+  @yield {object} body.rowMeta - The meta for the currently yielded row
+  @class {{ember-tbody}}
+  @public
 */
 export default Component.extend({
   layout,
@@ -40,7 +43,7 @@ export default Component.extend({
   /**
     The API object passed in by the table
 
-    @argument
+    @argument api
     @required
     @type object
   */
@@ -57,8 +60,8 @@ export default Component.extend({
     deselects other rows), and 'multiple' (multiple rows can be selected through
     ctrl/cmd-click or shift-click).
 
-    @argument
-    @type string
+    @argument checkboxSelectionMode
+    @type string? ('multiple')
   */
   checkboxSelectionMode: defaultTo(SELECT_MODE.MULTIPLE),
 
@@ -68,8 +71,8 @@ export default Component.extend({
     deselects other rows), and 'multiple' (multiple rows can be selected through
     ctrl/cmd-click or shift-click).
 
-    @argument
-    @type string
+    @argument rowSelectionMode
+    @type string? ('multiple')
   */
   rowSelectionMode: defaultTo(SELECT_MODE.MULTIPLE),
 
@@ -77,23 +80,25 @@ export default Component.extend({
     When true, this option causes selecting all of a node's children to also
     select the node itself.
 
-    @argument
+    @argument selectingChildrenSelectsParent
     @type boolean
   */
   selectingChildrenSelectsParent: defaultTo(true),
 
   /**
-    The currently selected rows. Can either be an array or and individual row.
+    The currently selected rows. Can either be an array or an individual row.
 
-    @argument
-    @type object?
+    @argument selection
+    @type array|object|null
   */
   selection: null,
 
   /**
-    An action that triggers when the row selection of the table changes.
+    An action that is called when the row selection of the table changes.
+    Will be called with either an array or individual row, depending on the
+    checkboxSelectionMode.
 
-    @argument
+    @argument onSelect
     @type Action?
     @param {object} selection - The new selection
   */
@@ -103,8 +108,8 @@ export default Component.extend({
     Estimated height for each row. This number is used to decide how many rows
     will be rendered at initial rendering.
 
-    @argument
-    @type number
+    @argument estimateRowHeight
+    @type number? (30)
   */
   estimateRowHeight: defaultTo(30),
 
@@ -114,31 +119,31 @@ export default Component.extend({
     it is set to true, all rows have the same height equivalent to
     estimateRowHeight.
 
-    @argument
-    @type boolean
+    @argument staticHeight
+    @type boolean? (false)
   */
   staticHeight: defaultTo(false),
 
   /**
     The number of extra rows to render on either side of the table's viewport
 
-    @argument
-    @type number
+    @argument bufferSize
+    @type number? (1)
   */
-  bufferSize: defaultTo(20),
+  bufferSize: defaultTo(1),
 
   /**
     A flag that tells the table to render all of its rows at once.
 
-    @argument
-    @type boolean
+    @argument renderAll
+    @type boolean? (false)
   */
   renderAll: defaultTo(false),
 
   /**
     An action that is triggered when the table reaches the first row.
 
-    @argument
+    @argument firstReached
     @type Action?
   */
   firstReached: null,
@@ -146,7 +151,7 @@ export default Component.extend({
   /**
     An action that is triggered when the table reaches the last row.
 
-    @argument
+    @argument lastReached
     @type Action?
   */
   lastReached: null,
@@ -154,7 +159,7 @@ export default Component.extend({
   /**
     An action that is triggered when the first visible row of the table changes.
 
-    @argument
+    @argument firstVisibleChanged
     @type Action?
   */
   firstVisibleChanged: null,
@@ -162,7 +167,7 @@ export default Component.extend({
   /**
     An action that is triggered when the last visible row of the table changes.
 
-    @argument
+    @argument lastVisibleChanged
     @type Action?
   */
   lastVisibleChanged: null,
@@ -170,24 +175,24 @@ export default Component.extend({
   /**
     Boolean flag that enables tree behavior if items have a `children` property
 
-    @argument
-    @type boolean
+    @argument enableTree
+    @type boolean? (true)
   */
   enableTree: defaultTo(true),
 
   /**
     Boolean flag that enables collapsing tree nodes
 
-    @argument
-    @type boolean
+    @argument enableCollapse
+    @type boolean? (true)
   */
   enableCollapse: defaultTo(true),
 
   /**
     The row items that the table should display
 
-    @argument
-    @type object
+    @argument rows
+    @type array? ([])
   */
   rows: defaultTo(() => []),
 
@@ -198,8 +203,8 @@ export default Component.extend({
     position with `idForFirstItem`. This is passed through to the
     vertical-collection.
 
-    @argument
-    @type string
+    @argument key
+    @type string? ('@identity')
   */
   key: defaultTo('@identity'),
 
@@ -209,7 +214,7 @@ export default Component.extend({
     with the provided id is at the top left on screen.
     If the item with id cannot be found, scrollTop is set to 0.
 
-    @argument
+    @argument idForFirstItem
     @type string?
   */
   idForFirstItem: null,
@@ -218,8 +223,8 @@ export default Component.extend({
     A selector string that will select the element from
     which to calculate the viewable height.
 
-    @argument
-    @type string
+    @argument containerSelector
+    @type string? (<tableId>)
   */
   containerSelector: defaultTo(''),
 
@@ -228,6 +233,8 @@ export default Component.extend({
     passed to the table.
   */
   canSelect: bool('onSelect'),
+
+  'data-test-row-count': readOnly('wrappedRows.length'),
 
   init() {
     this._super(...arguments);

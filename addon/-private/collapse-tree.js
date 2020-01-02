@@ -1,9 +1,9 @@
 import EmberObject, { get, set } from '@ember/object';
 import EmberArray, { A as emberA, isArray } from '@ember/array';
-import { assert } from '@ember/debug';
+import { assert, warn } from '@ember/debug';
 
 import { computed } from '@ember/object';
-import { addObserver } from '@ember/object/observers';
+import { addObserver } from './utils/observer';
 
 import { objectAt } from './utils/array';
 import { notifyPropertyChange } from './utils/ember';
@@ -174,13 +174,44 @@ export const TableRowMeta = EmberObject.extend({
         let meta = this;
         let currentValue = rowValue;
 
+        // If the parent is selected all of its children are selected. Since
+        // the current row is going to be removed from the selection, add all
+        // the sibling rows at each level of its grouping to be explicitly
+        // selected so their state remains stable.
         while (get(meta, '_parentMeta.isSelected')) {
           meta = get(meta, '_parentMeta');
 
-          for (let child of get(meta, '_rowValue.children')) {
-            if (child !== currentValue) {
-              selection.add(child);
+          // Iterate from the parent meta to the "next" tree node. Since this
+          // is a group it will have at least one child, so there should be at
+          // least one next row to iterate over.
+          let expectedChildDepth = get(meta, 'depth') + 1;
+          let childIndex = get(meta, 'index'); // will be incremented by 1 before use
+          let child;
+          while ((child = tree.objectAt(++childIndex))) {
+            // The currentValue is being toggled, don't add it to the selection
+            if (child === currentValue) {
+              continue;
             }
+
+            // If the depth of the row is lower than the expectedChildDepth a
+            // non-child meta has been found (a sibling or something higher.
+            // That means iterating children is complete, so break.
+            //
+            // If the depth is higher than expected then children of a child
+            // group are being iterated. Skip over them, but don't break since
+            // there may be a leaf child after a group child.
+            let childMeta = rowMetaCache.get(child);
+            let childDepth = get(childMeta, 'depth');
+            if (childDepth < expectedChildDepth) {
+              break;
+            }
+            if (childDepth > expectedChildDepth) {
+              continue;
+            }
+
+            // Else, this is a child node which must be explictly selected.
+            // Add it to the list.
+            selection.add(child);
           }
 
           selection.delete(currentValue);
@@ -196,7 +227,7 @@ export const TableRowMeta = EmberObject.extend({
       selection.add(rowValue);
     }
 
-    let rowMetas = Array.from(selection).map(r => rowMetaCache.get(r));
+    let rowMetas = mapSelectionToMeta(this.get('_tree'), selection, rowMetaCache);
 
     if (selectingChildrenSelectsParent) {
       let groupingCounts = new Map();
@@ -279,6 +310,76 @@ function setupRowMeta(tree, row, parentRow, node) {
 }
 
 /**
+ * Traverses the tree to set up row meta for every row in the tree.
+ * Usually row metas are lazily created as needed, but it's possible to end up in a state
+ * where a table's `selection` contains rows that do not have a rowMeta (for instance, if they
+ * have not yet been rendered due to occlusion rendering). In this state, there may not be a
+ * rowMeta for every row in the `selection`, so we need to explicitly set them all up at that
+ * time.
+ * This has adverse performance impact, so we lazily call this function only when we find that
+ * the `selection` has some rows with no corresponding rowMeta.
+ *
+ * @param {CollapseTree} tree The collapse tree for this section (body|footer) of the table
+ * @param {object} parentRow The parent row. Only present when called recursively
+ */
+function setupAllRowMeta(tree, rows, parentRow = null) {
+  for (let row of rows) {
+    setupRowMeta(tree, row, parentRow);
+    if (row.children && row.children.length) {
+      setupAllRowMeta(tree, row.children, row);
+    }
+  }
+}
+
+/**
+ * Maps the selection to an array of rowMetas.
+ *
+ * If any row in the selection does not have a rowMeta, calls `setupAllRowMeta`
+ * to materialize all rowMetas, then tries again to get the rowMeta for that
+ * row. This happens in rare cases where, due to occlusion rendering, a row may
+ * be part of the selection but not in view (and thus have no rowMeta; the
+ * rowMeta is lazily created when the row is rendered).
+ *
+ * If after calling `setupAllRowMeta` the row still does not have a
+ * corresponding rowMeta, it is likely an invalid selection, which can happen when a user
+ * sets the table's selection programmatically and includes a row that is not
+ * actually part of the table. If this happens we `warn` because of the adverse
+ * performance impact (the forced call to `setupAllRowMeta`) that is caused by
+ * spurious rows in the selection.
+ * @param {CollapseTree} tree The collapse tree for this section (body|footer) of the table
+ * @param {Set|Array} selection The selected rows
+ * @return {rowMeta[]} rowMeta for each of the rows in the selection
+ */
+function mapSelectionToMeta(tree, selection) {
+  let rowMetaCache = tree.get('rowMetaCache');
+  let rowMetas = [];
+  let didSetupAllRowMeta = false;
+
+  for (let item of Array.from(selection)) {
+    let rowMeta = rowMetaCache.get(item);
+    if (!rowMeta && !didSetupAllRowMeta) {
+      setupAllRowMeta(tree, tree.get('rows'));
+      didSetupAllRowMeta = true;
+      rowMeta = rowMetaCache.get(item);
+    }
+
+    if (!rowMeta && didSetupAllRowMeta) {
+      warn(
+        "[ember-table] The selection included a row that was not found in the table's rows. This should be avoided as it causes performance issues.",
+        false,
+        {
+          id: 'ember-table.selection-invalid',
+        }
+      );
+    } else {
+      rowMetas.push(rowMeta);
+    }
+  }
+
+  return rowMetas;
+}
+
+/**
  Given a list of ordered values and a target value, finds the index of
  the closest value which does not exceed the target value
 
@@ -331,7 +432,7 @@ const CollapseTreeNode = EmberObject.extend({
 
     if (parent) {
       // Changes to the value directly should properly update all computeds on this
-      // node, but we need to manually propogate changes upwards to notify any other
+      // node, but we need to manually propagate changes upwards to notify any other
       // watchers
       addObserver(this, 'length', () => {
         notifyPropertyChange(parent, 'length');
@@ -657,7 +758,7 @@ export default EmberObject.extend(EmberArray, {
   init() {
     this._super(...arguments);
 
-    // Whenever the root node's length changes we need to propogate the change to
+    // Whenever the root node's length changes we need to propagate the change to
     // users of the tree, and since the tree is meant to work like an array we should
     // trigger a change on the `[]` key as well.
     addObserver(this, 'root.length', () => notifyPropertyChange(this, '[]'));

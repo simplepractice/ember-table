@@ -1,6 +1,6 @@
 /* eslint-disable getter-return */
 import EmberObject, { get, set } from '@ember/object';
-import { addObserver, removeObserver } from '@ember/object/observers';
+import { addObserver, removeObserver } from './utils/observer';
 import { A as emberA } from '@ember/array';
 import { DEBUG } from '@glimmer/env';
 
@@ -12,6 +12,7 @@ import { scheduler, Token } from 'ember-raf-scheduler';
 import { getOrCreate } from './meta-cache';
 import { objectAt, move, splice } from './utils/array';
 import { mergeSort } from './utils/sort';
+import { isEmpty } from '@ember/utils';
 import { getScale, getOuterClientRect, getInnerClientRect } from './utils/element';
 import { MainIndicator, DropIndicator } from './utils/reorder-indicators';
 import { notifyPropertyChange } from './utils/ember';
@@ -34,6 +35,7 @@ export const FILL_MODE = {
   EQUAL_COLUMN: 'equal-column',
   FIRST_COLUMN: 'first-column',
   LAST_COLUMN: 'last-column',
+  NTH_COLUMN: 'nth-column',
 };
 
 export const WIDTH_CONSTRAINT = {
@@ -170,11 +172,10 @@ const ColumnTreeNode = EmberObject.extend({
       meta.endReorder = (...args) => tree.endReorder(this, ...args);
 
       // Changes to the value directly should properly update all computeds on this
-      // node, but we need to manually propogate changes upwards to notify any other
+      // node, but we need to manually propagate changes upwards to notify any other
       // watchers
       this._notifyMaxChildDepth = () => notifyPropertyChange(parent, 'maxChildDepth');
       this._notifyLeaves = () => notifyPropertyChange(parent, 'leaves');
-      this._notifyCollection = () => notifyPropertyChange(parent, '[]');
 
       addObserver(this, 'maxChildDepth', this._notifyMaxChildDepth);
       addObserver(this, 'leaves.[]', this._notifyLeaves);
@@ -216,8 +217,11 @@ const ColumnTreeNode = EmberObject.extend({
     return this._subcolumnNodes;
   }),
 
-  isLeaf: computed('column.subcolumns.[]', function() {
+  isLeaf: computed('column.subcolumns.[]', 'isRoot', function() {
     let subcolumns = get(this, 'column.subcolumns');
+    if (get(this, 'isRoot')) {
+      return false;
+    }
 
     return !subcolumns || get(subcolumns, 'length') === 0;
   }),
@@ -633,6 +637,7 @@ export default EmberObject.extend({
 
     let widthConstraint = get(this, 'widthConstraint');
     let fillMode = get(this, 'fillMode');
+    let fillColumnIndex = get(this, 'fillColumnIndex');
 
     if (
       (widthConstraint === WIDTH_CONSTRAINT.EQ_CONTAINER && treeWidth !== containerWidth) ||
@@ -644,15 +649,30 @@ export default EmberObject.extend({
       if (fillMode === FILL_MODE.EQUAL_COLUMN) {
         set(this, 'root.width', containerWidth);
       } else if (fillMode === FILL_MODE.FIRST_COLUMN) {
-        let oldWidth = get(columns, 'firstObject.width');
-
-        set(columns, 'firstObject.width', oldWidth + delta);
+        this.resizeColumn(0, delta);
       } else if (fillMode === FILL_MODE.LAST_COLUMN) {
-        let oldWidth = get(columns, 'lastObject.width');
-
-        set(columns, 'lastObject.width', oldWidth + delta);
+        this.resizeColumn(columns.length - 1, delta);
+      } else if (fillMode === FILL_MODE.NTH_COLUMN) {
+        assert(
+          "fillMode 'nth-column' must have a fillColumnIndex defined",
+          !isEmpty(fillColumnIndex)
+        );
+        this.resizeColumn(fillColumnIndex, delta);
       }
     }
+  },
+
+  resizeColumn(index, delta) {
+    let columns = get(this, 'root.subcolumnNodes');
+
+    let fillColumn = columns[index];
+    assert(
+      `Invalid column index, ${index}, for a table with ${columns.length} columns`,
+      fillColumn
+    );
+
+    let oldWidth = get(fillColumn, 'width');
+    set(fillColumn, 'width', oldWidth + delta);
   },
 
   getReorderBounds(node) {
@@ -770,7 +790,7 @@ export default EmberObject.extend({
 
     move(subcolumns, insertIndex, afterIndex);
 
-    notifyPropertyChange(parent, 'column.subcolumns.[]');
+    notifyPropertyChange(subcolumns, '[]');
   },
 
   startReorder(node, clientX) {

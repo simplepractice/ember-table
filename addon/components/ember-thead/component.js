@@ -3,8 +3,9 @@ import Component from '@ember/component';
 import { bind } from '@ember/runloop';
 import { A as emberA } from '@ember/array';
 import defaultTo from '../../-private/utils/default-to';
+import { addObserver } from '../../-private/utils/observer';
 import { computed } from '@ember/object';
-import { notEmpty, or } from '@ember/object/computed';
+import { notEmpty, or, readOnly } from '@ember/object/computed';
 
 import { closest } from '../../-private/utils/element';
 import { sortMultiple, compareValues } from '../../-private/utils/sort';
@@ -29,8 +30,10 @@ import layout from './template';
   </EmberTable>
   ```
 
-  @yield {object} h - the API object yielded by the table header
-  @yield {Component} h.row - The table row component
+  @yield {object} head - the API object yielded by the table header
+  @yield {Component} head.row - The table row component
+  @class {{ember-thead}}
+  @public
 */
 
 export default Component.extend({
@@ -40,7 +43,7 @@ export default Component.extend({
   /**
     The API object passed in by the table
 
-    @argument
+    @argument api
     @required
     @type object
   */
@@ -51,51 +54,52 @@ export default Component.extend({
   /**
     The column definitions for the table
 
-    @argument
+    @argument columns
     @required
-    @type(Array)
+    @type array? ([])
   */
   columns: defaultTo(() => []),
 
   /**
     An ordered array of the sorts applied to the table
-    @argument({ defaultIfUndefined: true })
-    @type(Array)
+    @argument sorts
+    @type array? ([])
   */
   sorts: defaultTo(() => []),
 
   /**
-    An optional sort
-    @argument({ defaultIfUndefined: true })
-    @type(optional(Function))
+    An optional sort. If not specified, defaults to <sortMultiple>, which
+    sorts by each `sort` in `sorts`, in order.
+    @argument sortFunction
+    @type function? (<sortMultiple>)
   */
   sortFunction: defaultTo(() => sortMultiple),
 
   /**
     An ordered array of the sorts applied to the table
-    @argument({ defaultIfUndefined: true })
-    @type(optional(Function))
+    @argument compareFunction
+    @type function? (<compareValues>)
   */
   compareFunction: defaultTo(() => compareValues),
 
   /**
     Flag that allows to sort empty values after non empty ones
-    @argument({ defaultIfUndefined: false })
-    @type(optional('boolean'))
+    @argument sortEmptyLast
+    @type boolean? (false)
   */
   sortEmptyLast: defaultTo(false),
 
   /**
     Flag that toggles reordering in the table
-    @argument({ defaultIfUndefined: true })
-    @type('boolean')
+    @argument enableReorder
+    @type boolean? (true)
   */
   enableReorder: defaultTo(true),
 
   /**
     Flag that toggles resizing in the table
-    @argument({ defaultIfUndefined: true })
-    @type('boolean')
+    @argument enableResize
+    @type boolean? (true)
   */
   enableResize: defaultTo(true),
 
@@ -103,66 +107,85 @@ export default Component.extend({
     Sets which column resizing behavior to use. Possible values are `standard`
     (resizing a column pushes or pulls all other columns) and `fluid` (resizing a
     column subtracts width from neighboring columns).
-    @argument({ defaultIfUndefined: true })
-    @type('string')
+    @argument resizeMode
+    @type string? ('standard')
   */
   resizeMode: defaultTo(RESIZE_MODE.STANDARD),
 
   /**
     A configuration that controls how columns shrink (or extend) when total column width does not
-    match table width. Behavior of column modification is as follow:
+    match table width. Behavior of column modification is as follows:
 
     * "equal-column": extra space is distributed equally among all columns
     * "first-column": extra space is added into the first column.
     * "last-column": extra space is added into the last column.
+    * "nth-column": extra space is added into the column defined by `fillColumnIndex`.
 
-    @argument({ defaultIfUndefined: true })
-    @type('string')
+    @argument fillMode
+    @type string? ('equal-column')
   */
   fillMode: defaultTo(FILL_MODE.EQUAL_COLUMN),
 
   /**
+    A configuration that controls which column shrinks (or extends) when `fillMode` is
+    'nth-column'. This is zero indexed.
+
+    @argument fillColumnIndex
+    @type number?
+  */
+  fillColumnIndex: null,
+
+  /**
     Sets a constraint on the table's size, such that it must be greater than, less
     than, or equal to the size of the containing element.
-    @argument({ defaultIfUndefined: true })
-    @type('string')
+    Valid values:
+      * 'none'
+      * 'eq-container'
+      * 'gte-container'
+      * 'lte-container'
+
+    @argument widthConstraint
+    @type string? ('none')
   */
   widthConstraint: defaultTo(WIDTH_CONSTRAINT.NONE),
 
   /**
     A numeric adjustment to be applied to the constraint on the table's size.
-    @argument
-    @type(optional('number'))
+
+    @argument containerWidthAdjustment
+    @type number?
   */
   containerWidthAdjustment: null,
 
   /**
     An action that is sent when sorts is updated
-    @argument
-    @type(optional(Action))
+    @argument onHeaderAction
+    @type Action?
   */
   onHeaderAction: null,
 
   /**
     An action that is sent when sorts is updated
-    @argument
-    @type(optional(Action))
+    @argument onUpdateSorts
+    @type Action?
   */
   onUpdateSorts: null,
 
   /**
     An action that is sent when columns are reordered
-    @argument
-    @type(optional(Action))
+    @argument onReorder
+    @type Action?
   */
   onReorder: null,
 
   /**
     An action that is sent when columns are resized
-    @argument
-    @type(optional(Action))
+    @argument onResize
+    @type Action?
   */
   onResize: null,
+
+  'data-test-row-count': readOnly('wrappedRows.length'),
 
   init() {
     this._super(...arguments);
@@ -192,19 +215,20 @@ export default Component.extend({
     this._updateApi();
     this._updateColumnTree();
 
-    this.addObserver('sorts', this._updateApi);
-    this.addObserver('sortFunction', this._updateApi);
-    this.addObserver('reorderFunction', this._updateApi);
+    addObserver(this, 'sorts', this._updateApi);
+    addObserver(this, 'sortFunction', this._updateApi);
+    addObserver(this, 'reorderFunction', this._updateApi);
 
-    this.addObserver('sorts', this._updateColumnTree);
-    this.addObserver('columns.[]', this._onColumnsChange);
-    this.addObserver('fillMode', this._updateColumnTree);
-    this.addObserver('resizeMode', this._updateColumnTree);
-    this.addObserver('widthConstraint', this._updateColumnTree);
+    addObserver(this, 'sorts', this._updateColumnTree);
+    addObserver(this, 'columns.[]', this._onColumnsChange);
+    addObserver(this, 'fillMode', this._updateColumnTree);
+    addObserver(this, 'fillColumnIndex', this._updateColumnTree);
+    addObserver(this, 'resizeMode', this._updateColumnTree);
+    addObserver(this, 'widthConstraint', this._updateColumnTree);
 
-    this.addObserver('enableSort', this._updateColumnTree);
-    this.addObserver('enableResize', this._updateColumnTree);
-    this.addObserver('enableReorder', this._updateColumnTree);
+    addObserver(this, 'enableSort', this._updateColumnTree);
+    addObserver(this, 'enableResize', this._updateColumnTree);
+    addObserver(this, 'enableReorder', this._updateColumnTree);
   },
 
   _updateApi() {
@@ -219,6 +243,7 @@ export default Component.extend({
     this.columnTree.set('sorts', this.get('sorts'));
     this.columnTree.set('columns', this.get('columns'));
     this.columnTree.set('fillMode', this.get('fillMode'));
+    this.columnTree.set('fillColumnIndex', this.get('fillColumnIndex'));
     this.columnTree.set('resizeMode', this.get('resizeMode'));
     this.columnTree.set('widthConstraint', this.get('widthConstraint'));
 
@@ -266,6 +291,7 @@ export default Component.extend({
     'sorts.[]',
     'headerActions.[]',
     'fillMode',
+    'fillColumnIndex',
     function() {
       let rows = this.get('columnTree.rows');
       let sorts = this.get('sorts');

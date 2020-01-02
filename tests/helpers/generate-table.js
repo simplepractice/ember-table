@@ -1,9 +1,14 @@
 import hbs from 'htmlbars-inline-precompile';
 import wait from 'ember-test-helpers/wait';
-import { generateColumns, generateRows } from 'dummy/utils/generators';
+import {
+  configureTableGeneration,
+  generateColumns,
+  generateRows,
+  resetTableGenerationConfig,
+} from 'dummy/utils/generators';
 
 // reexport for use in tests
-export { generateColumns, generateRows };
+export { configureTableGeneration, resetTableGenerationConfig, generateColumns, generateRows };
 
 const fullTable = hbs`
   <div style="height: 500px;">
@@ -20,6 +25,8 @@ const fullTable = hbs`
         enableResize=enableResize
         enableReorder=enableReorder
         widthConstraint=widthConstraint
+        fillColumnIndex=fillColumnIndex
+
 
         onUpdateSorts=(action "onUpdateSorts")
         onReorder=(action "onReorder")
@@ -150,7 +157,10 @@ export function generateTableValues(
   testContext.set('footerRows', footerRows);
 
   for (let action in defaultActions) {
-    if (testContext && !testContext[action]) {
+    let actions = testContext.actions || testContext._actions;
+
+    if (actions && !actions[action]) {
+      console.log(action, defaultActions[action]);
       testContext.on(action, defaultActions[action].bind(testContext));
     }
   }
