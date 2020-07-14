@@ -157,7 +157,9 @@ export function generateTableValues(
   testContext.set('footerRows', footerRows);
 
   for (let action in defaultActions) {
-    if (testContext && !testContext[action]) {
+    let actions = testContext.actions || testContext._actions;
+
+    if (actions && !actions[action]) {
       testContext.on(action, defaultActions[action].bind(testContext));
     }
   }
