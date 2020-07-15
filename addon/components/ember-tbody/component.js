@@ -1,5 +1,6 @@
 import Component from '@ember/component';
 
+import { run } from '@ember/runloop';
 import { computed } from '@ember/object';
 import { observer } from '../../-private/utils/observer';
 import { bool, readOnly, or } from '@ember/object/computed';
@@ -10,7 +11,7 @@ import CollapseTree, { SELECT_MODE } from '../../-private/collapse-tree';
 import defaultTo from '../../-private/utils/default-to';
 
 import layout from './template';
-import { assert } from '@ember/debug';
+import { assert, runInDebug } from '@ember/debug';
 
 /**
   The table body component. This component manages the main bulk of the rows of
@@ -234,7 +235,9 @@ export default Component.extend({
   */
   canSelect: bool('onSelect'),
 
-  'data-test-row-count': readOnly('wrappedRows.length'),
+  dataTestRowCount: null,
+
+  'data-test-row-count': readOnly('dataTestRowCount'),
 
   init() {
     this._super(...arguments);
@@ -255,10 +258,22 @@ export default Component.extend({
 
     this._updateCollapseTree();
 
+    runInDebug(() => {
+      let scheduleUpdate = (this._scheduleUpdate = () => {
+        run.scheduleOnce('actions', this, this._updateDataTestRowCount);
+      });
+      this.collapseTree.addObserver('rows', scheduleUpdate);
+      this.collapseTree.addObserver('[]', scheduleUpdate);
+    });
+
     assert(
       'You must create an {{ember-thead}} with columns before creating an {{ember-tbody}}',
       !!this.get('unwrappedApi.columnTree')
     );
+  },
+
+  _updateDataTestRowCount() {
+    this.set('dataTestRowCount', this.get('collapseTree.length'));
   },
 
   // eslint-disable-next-line
@@ -292,12 +307,16 @@ export default Component.extend({
       this.rowMetaCache.delete(row);
     }
 
+    runInDebug(() => {
+      this.collapseTree.removeObserver('rows', this._scheduleUpdate);
+      this.collapseTree.removeObserver('[]', this._scheduleUpdate);
+    });
     this.collapseTree.destroy();
   },
 
   /**
     Computed property which updates the CollapseTree and erases caches. This is
-    a computed for 1.11 compatibility, otherwise it would make sense to use
+    a computed for 1.12 compatibility, otherwise it would make sense to use
     lifecycle hooks instead.
   */
   wrappedRows: computed('rows', function() {

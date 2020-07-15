@@ -160,7 +160,6 @@ export function generateTableValues(
     let actions = testContext.actions || testContext._actions;
 
     if (actions && !actions[action]) {
-      console.log(action, defaultActions[action]);
       testContext.on(action, defaultActions[action].bind(testContext));
     }
   }
